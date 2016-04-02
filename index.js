@@ -25,14 +25,23 @@ yargs
 		"max-mem": {
 			describe: "maximum memory allocation",
 			default: "2G"
+		},
+		dir: {
+			alias: "d",
+			describe: "working directory for the server - defaults to current dir",
+			default: __dirname
 		}
 	}, function(argv) {
 		scarlet.info("Jarfile: " + argv.jar);
 
 		controller.spawn(function(s) {
-			s.send(["pufferfish", "command", "spawn"], { name: argv.name, jarfile: argv.jar, min: argv["min-mem"], max: argv["max-mem"] });
+			s.send(["pufferfish", "command", "spawn"], { name: argv.name, jarfile: argv.jar, min: argv["min-mem"], max: argv["max-mem"], cwd: argv.dir });
 
 			scarlet.info("Starting Minecraft server '" + argv.name + "'...");
+
+			s.end();
+
+			//process.exit(0);
 		});
 	})
 	.command("stop", "Stop a Minecraft instance.", {
@@ -46,6 +55,8 @@ yargs
 			s.send(["pufferfish", "command", "stop"], { name: argv.name });
 
 			scarlet.info("Stopped server '" + argv.name + "'.");
+
+			s.end();
 		});
 	})
 	.command("attatch", "Attatch to a Minecraft instance.", {
@@ -74,7 +85,14 @@ yargs
 					border: "line",
 					mouse: true,
 					keys: true,
-					vi: false
+					vi: false,
+					scrollbar: true,
+					style: {
+						scrollbar: {
+							bg: "black",
+							fg: "white"
+						}
+					}
 				});
 
 				var input = blessed.textbox({
@@ -82,39 +100,38 @@ yargs
 					bottom: 0,
 					left: 0,
 					height: "5%",
-					width: "50%"
+					width: "50%",
+					border: "line",
+					fg: "white",
+					inputOnFocus: true
 				});
 
-				input.on("click", function() {
-					input.readInput(function(data) {
-						s.send(["pufferfish", "command", "servercmd"], { name: argv.name, cmd: data });
-						input.clearValue();
+				input.on("submit", function() {
+					s.send(["pufferfish", "command", "servercmd"], { name: argv.name, cmd: input.value });
+					input.clearValue();
 
-						screen.render();
-					});
+					screen.render();
+
+					input.focus();
 				});
 
-				input.key("enter", function() {
-					input.submit();
+				fs.readFile(__dirname + "/logs/" + argv.name + ".txt", "utf8", function(err, data) {
+					logger.add(data.trim());
 
 					screen.render();
 				});
 
-				fs.readFile("./logs/" + argv.name + ".txt", function(data) {
-					logger.add(data);
+				var wsocket = new ws("ws://127.0.0.1:1350");
 
+				wsocket.on("message", function(data, flags) {
+					logger.add(data.trim());
 					screen.render();
 				});
 
-				var ws = new ws("ws://127.0.0.1:1350");
-
-				ws.on("message", function(data, flags) {
-					logger.add(data);
-					screen.render();
-				});
-
-				screen.key("C-c", function() {
-					return screen.destroy();
+				input.key("C-b", function() {
+					s.end();
+					screen.destroy();
+					wsocket.close();
 				});
 
 				input.focus();
